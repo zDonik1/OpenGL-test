@@ -1,11 +1,12 @@
 // Headers
+#include <iostream>
+#include <chrono>
 #include <GL/glew.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <SOIL/SOIL.h>
 #include <SFML/Window.hpp>
-#include <chrono>
 
 // Shader sources
 const GLchar* sceneVertexSource = R"glsl(
@@ -156,11 +157,23 @@ void createShaderProgram(const GLchar* vertSrc, const GLchar* fragSrc, GLuint& v
     vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertSrc, NULL);
     glCompileShader(vertexShader);
+    GLint success;
+    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+    if (success == GL_FALSE) {
+        char buffer[512];
+        glGetShaderInfoLog(vertexShader, 512, NULL, buffer);
+        std::cout << "vertex shader failed: " << buffer;
+    }
 
     // Create and compile the fragment shader
     fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragmentShader, 1, &fragSrc, NULL);
     glCompileShader(fragmentShader);
+    if (success == GL_FALSE) {
+        char buffer[512];
+        glGetShaderInfoLog(fragmentShader, 512, NULL, buffer);
+        std::cout << "fragment shader failed: " << buffer;
+    }
 
     // Link the vertex and fragment shader into a shader program
     shaderProgram = glCreateProgram();
