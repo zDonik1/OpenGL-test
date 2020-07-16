@@ -1,6 +1,3 @@
-// Link statically with GLEW
-#define GLEW_STATIC
-
 // Headers
 #include <GL/glew.h>
 #include <glm/glm.hpp>
@@ -29,6 +26,7 @@ const GLchar* sceneVertexSource = R"glsl(
         gl_Position = proj * view * model * vec4(position, 1.0);
     }
 )glsl";
+
 const GLchar* sceneFragmentSource = R"glsl(
     #version 150 core
     in vec3 Color;
@@ -53,6 +51,7 @@ const GLchar* screenVertexSource = R"glsl(
         gl_Position = vec4(position, 0.0, 1.0);
     }
 )glsl";
+
 const GLchar* screenFragmentSource = R"glsl(
     #version 150 core
     in vec2 Texcoord;
@@ -60,7 +59,9 @@ const GLchar* screenFragmentSource = R"glsl(
     uniform sampler2D texFramebuffer;
     void main()
     {
-        outColor = 1 - texture(texFramebuffer, Texcoord);
+        outColor = texture(texFramebuffer, Texcoord);
+        float avg = (outColor.r + outColor.g + outColor.b) / 3.0;
+        outColor = vec4(avg, avg, avg, 1.0);
     }
 )glsl";
 
