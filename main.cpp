@@ -60,7 +60,7 @@ const GLchar* screenFragmentSource = R"glsl(
     uniform sampler2D texFramebuffer;
     void main()
     {
-        outColor = texture(texFramebuffer, Texcoord);
+        outColor = 1 - texture(texFramebuffer, Texcoord);
     }
 )glsl";
 
