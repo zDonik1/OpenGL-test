@@ -58,11 +58,23 @@ const GLchar* screenFragmentSource = R"glsl(
     in vec2 Texcoord;
     out vec4 outColor;
     uniform sampler2D texFramebuffer;
+
+    const float blurSizeH = 1.0 / 300.0;
+    const float blurSizeV = 1.0 / 200.0;
+    const int radiusInSamples = 4;
+    const int diameterInSamples = (radiusInSamples * 2 + 1);
+    const int numberOfSamples = diameterInSamples * diameterInSamples;
+
     void main()
     {
-        outColor = texture(texFramebuffer, Texcoord);
-        float avg = 0.2126 * outColor.r + 0.7152 * outColor.g + 0.0722 * outColor.b;
-        outColor = vec4(avg, avg, avg, 1.0);
+        vec4 sum = vec4(0.0);
+        for (int x = -radiusInSamples; x <= radiusInSamples; ++x)
+            for (int y = -radiusInSamples; y <= radiusInSamples; ++y)
+                sum += texture(
+                    texFramebuffer,
+                    vec2(Texcoord.x + x * blurSizeH, Texcoord.y + y * blurSizeV)
+                    );
+        outColor = sum / numberOfSamples;
     }
 )glsl";
 
