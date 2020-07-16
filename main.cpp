@@ -60,7 +60,7 @@ const GLchar* screenFragmentSource = R"glsl(
     void main()
     {
         outColor = texture(texFramebuffer, Texcoord);
-        float avg = (outColor.r + outColor.g + outColor.b) / 3.0;
+        float avg = 0.2126 * outColor.r + 0.7152 * outColor.g + 0.0722 * outColor.b;
         outColor = vec4(avg, avg, avg, 1.0);
     }
 )glsl";
