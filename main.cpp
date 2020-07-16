@@ -53,26 +53,51 @@ const GLchar* screenVertexSource = R"glsl(
     }
 )glsl";
 
+// weightSum is not optimized btw
 const GLchar* screenFragmentSource = R"glsl(
     #version 150 core
     in vec2 Texcoord;
     out vec4 outColor;
     uniform sampler2D texFramebuffer;
 
+    const float standardDeviation = 2.0;
+    const float squareSd = standardDeviation * standardDeviation;
+
     void main()
     {
-        vec4 top         = texture(texFramebuffer, vec2(Texcoord.x, Texcoord.y + 1.0 / 200.0));
-        vec4 bottom      = texture(texFramebuffer, vec2(Texcoord.x, Texcoord.y - 1.0 / 200.0));
-        vec4 left        = texture(texFramebuffer, vec2(Texcoord.x - 1.0 / 300.0, Texcoord.y));
-        vec4 right       = texture(texFramebuffer, vec2(Texcoord.x + 1.0 / 300.0, Texcoord.y));
-        vec4 topLeft     = texture(texFramebuffer, vec2(Texcoord.x - 1.0 / 300.0, Texcoord.y + 1.0 / 200.0));
-        vec4 topRight    = texture(texFramebuffer, vec2(Texcoord.x + 1.0 / 300.0, Texcoord.y + 1.0 / 200.0));
-        vec4 bottomLeft  = texture(texFramebuffer, vec2(Texcoord.x - 1.0 / 300.0, Texcoord.y - 1.0 / 200.0));
-        vec4 bottomRight = texture(texFramebuffer, vec2(Texcoord.x + 1.0 / 300.0, Texcoord.y - 1.0 / 200.0));
-        vec4 sx = -topLeft - 2 * left - bottomLeft + topRight   + 2 * right  + bottomRight;
-        vec4 sy = -topLeft - 2 * top  - topRight   + bottomLeft + 2 * bottom + bottomRight;
-        vec4 sobel = sqrt(sx * sx + sy * sy);
-        outColor = sobel;
+        vec4 sum = vec4(0.0);
+        float weightSum = 0.0;
+        float weight = 0.0;
+        for (int i = -4; i <= 4; ++i) {
+            weight = pow(2.7182, -0.5 * (i * i) / squareSd);
+            sum += texture(texFramebuffer, vec2(Texcoord.x + i * 1.0 / 300.0, Texcoord.y)) * weight;
+            weightSum += weight;
+        }
+        outColor = sum / weightSum;
+    }
+)glsl";
+
+// weightSum is not optimized btw
+const GLchar* gaussBlurFragmentSource = R"glsl(
+    #version 150 core
+    in vec2 Texcoord;
+    out vec4 outColor;
+    uniform sampler2D texFramebuffer;
+
+    const float standardDeviation = 2.0;
+    const float squareSd = standardDeviation * standardDeviation;
+
+    void main()
+    {
+        vec4 sum = vec4(0.0);
+        float weightSum = 0.0;
+        float weight = 0.0;
+        for (int i = -4; i <= 4; ++i) {
+            weight = pow(2.7182, -0.5 * (i * i) / squareSd);
+            sum += texture(texFramebuffer, vec2(Texcoord.x, Texcoord.y + i * 1.0 / 300.0)) * weight;
+            weightSum += weight;
+        }
+        outColor = sum / weightSum;
     }
 )glsl";
 
@@ -193,6 +218,30 @@ void createShaderProgram(const GLchar* vertSrc, const GLchar* fragSrc, GLuint& v
     glLinkProgram(shaderProgram);
 }
 
+void createFramebuffer(GLuint &frameBuffer, GLuint &texColorBuffer, GLuint &rboDepthStencil)
+{
+    // Create framebuffer
+    glGenFramebuffers(1, &frameBuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
+
+    // Create texture to hold color buffer
+    glGenTextures(1, &texColorBuffer);
+    glBindTexture(GL_TEXTURE_2D, texColorBuffer);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 800, 600, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texColorBuffer, 0);
+
+    // Create Renderbuffer Object to hold depth and stencil buffers
+    glGenRenderbuffers(1, &rboDepthStencil);
+    glBindRenderbuffer(GL_RENDERBUFFER, rboDepthStencil);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 800, 600);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rboDepthStencil);
+}
+
 void specifySceneVertexAttributes(GLuint shaderProgram)
 {
     GLint posAttrib = glGetAttribLocation(shaderProgram, "position");
@@ -256,6 +305,10 @@ int main()
     createShaderProgram(sceneVertexSource, sceneFragmentSource,
                         sceneVertexShader, sceneFragmentShader, sceneShaderProgram);
 
+    GLuint gaussBlurVertexShader, gaussBlurFragmentShader, gaussBlurShaderProgram;
+    createShaderProgram(screenVertexSource, gaussBlurFragmentSource,
+                        gaussBlurVertexShader, gaussBlurFragmentShader, gaussBlurShaderProgram);
+
     GLuint screenVertexShader, screenFragmentShader, screenShaderProgram;
     createShaderProgram(screenVertexSource, screenFragmentSource,
                         screenVertexShader, screenFragmentShader, screenShaderProgram);
@@ -282,31 +335,15 @@ int main()
 
     GLint uniModel = glGetUniformLocation(sceneShaderProgram, "model");
 
-    // Create framebuffer
-    GLuint frameBuffer;
-    glGenFramebuffers(1, &frameBuffer);
-    glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
+    // create framebuffers
+    GLuint sceneRenderFrameBuffer, sceneRenderTexColorBuffer, sceneRenderRboDepthStencil;
+    GLuint gaussBlurFrameBuffer, gaussBlurTexColorBuffer, gaussBlurRboDepthStencil;
+    createFramebuffer(sceneRenderFrameBuffer, sceneRenderTexColorBuffer,
+                      sceneRenderRboDepthStencil);
+    createFramebuffer(gaussBlurFrameBuffer, gaussBlurTexColorBuffer,
+                      gaussBlurRboDepthStencil);
 
-    // Create texture to hold color buffer
-    GLuint texColorBuffer;
-    glGenTextures(1, &texColorBuffer);
-    glBindTexture(GL_TEXTURE_2D, texColorBuffer);
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 800, 600, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texColorBuffer, 0);
-
-    // Create Renderbuffer Object to hold depth and stencil buffers
-    GLuint rboDepthStencil;
-    glGenRenderbuffers(1, &rboDepthStencil);
-    glBindRenderbuffer(GL_RENDERBUFFER, rboDepthStencil);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 800, 600);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rboDepthStencil);
-
-    // Set up projection
+    // Set up projuection
     glm::mat4 view = glm::lookAt(
         glm::vec3(2.5f, 2.5f, 2.0f),
         glm::vec3(0.0f, 0.0f, 0.0f),
@@ -342,7 +379,7 @@ int main()
         }
 
         // Bind our framebuffer and draw 3D scene (spinning cube)
-        glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, sceneRenderFrameBuffer);
         glBindVertexArray(vaoCube);
         glEnable(GL_DEPTH_TEST);
         glUseProgram(sceneShaderProgram);
@@ -397,15 +434,27 @@ int main()
         glDisable(GL_STENCIL_TEST);
 
         // Bind default framebuffer and draw contents of our framebuffer
+        glBindFramebuffer(GL_FRAMEBUFFER, gaussBlurFrameBuffer);
+        glBindVertexArray(vaoQuad);
+        glDisable(GL_DEPTH_TEST);
+        glUseProgram(gaussBlurShaderProgram);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, sceneRenderTexColorBuffer);
+
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        // Bind default framebuffer and draw contents of our framebuffer
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glBindVertexArray(vaoQuad);
         glDisable(GL_DEPTH_TEST);
         glUseProgram(screenShaderProgram);
 
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, texColorBuffer);
+        glBindTexture(GL_TEXTURE_2D, gaussBlurTexColorBuffer);
 
         glDrawArrays(GL_TRIANGLES, 0, 6);
+
 
         // Swap buffers
         window.display();
@@ -413,9 +462,13 @@ int main()
         sf::sleep(sf::milliseconds(1)); // delay to avoid cpu overheating
     }
 
-    glDeleteRenderbuffers(1, &rboDepthStencil);
-    glDeleteTextures(1, &texColorBuffer);
-    glDeleteFramebuffers(1, &frameBuffer);
+    glDeleteRenderbuffers(1, &sceneRenderRboDepthStencil);
+    glDeleteTextures(1, &sceneRenderTexColorBuffer);
+    glDeleteFramebuffers(1, &sceneRenderFrameBuffer);
+
+    glDeleteRenderbuffers(1, &gaussBlurRboDepthStencil);
+    glDeleteTextures(1, &gaussBlurTexColorBuffer);
+    glDeleteFramebuffers(1, &gaussBlurFrameBuffer);
 
     glDeleteTextures(1, &texKitten);
     glDeleteTextures(1, &texPuppy);
@@ -423,6 +476,10 @@ int main()
     glDeleteProgram(screenShaderProgram);
     glDeleteShader(screenFragmentShader);
     glDeleteShader(screenVertexShader);
+
+    glDeleteProgram(gaussBlurShaderProgram);
+    glDeleteShader(gaussBlurFragmentShader);
+    glDeleteShader(gaussBlurVertexShader);
 
     glDeleteProgram(sceneShaderProgram);
     glDeleteShader(sceneFragmentShader);
